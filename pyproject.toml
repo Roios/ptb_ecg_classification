@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "core"
+version = "0.1.0"
+description = ""
+authors = ["Roios <pedro.roios@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12.0"
+torch = {version = "^2.3.0+cu118", source = "torch118"}
+torchvision = {version = "^0.18.0+cu118", source = "torch118"}
+numpy = "<2.0.0"
+seaborn = "^0.13.2"
+matplotlib = "^3.9.1"
+pandas = "^2.2.2"
+wfdb = "^4.1.2"
+scipy = "^1.14.0"
+scikit-learn = "^1.5.1"
+onnx = "^1.16.1"
+onnxruntime = "^1.18.1"
+onnxruntime-gpu = "^1.18.1"
+jupyter = "^1.0.0"
+pywavelets = "^1.6.0"
+
+[[tool.poetry.source]]
+name = "torch118"
+url = "https://download.pytorch.org/whl/cu118"
+priority = "explicit"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.yapf]
+based_on_style = "google"
+column_limit = 120
+
+[settings.virtualenvs]
+in-project = "true"
+
+[tool.ruff]
+line-length = 120
