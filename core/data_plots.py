@@ -114,3 +114,43 @@ def plot_filtered_signals(ecg_signal: np.ndarray,
     plt.title(title)
     plt.savefig(str(dst_dir.joinpath(f"{title.replace(' ', '_')}.png")))
     plt.show()
+
+
+def plot_signal(signal: np.ndarray, xlabel: str = "", ylabel: str = "", title: str = "") -> None:
+    """ Basic line plot of a signal
+
+    Args:
+        signal (np.ndarray): Signal to plot
+        xlabel (str, optional): x label. Defaults to "".
+        ylabel (str, optional): y label. Defaults to "".
+        title (str, optional): title. Defaults to "".
+    """
+    plt.figure(figsize=(20, 4))
+    sns.lineplot(data=signal, linewidth=0.5)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.show()
+
+
+def plot_signal_and_rpeaks(signal: np.ndarray,
+                           rpeaks_loc: np.ndarray,
+                           xlabel: str = "",
+                           ylabel: str = "",
+                           title: str = "") -> None:
+    """ Basic line plot of a signal with the peaks,
+
+    Args:
+        signal (np.ndarray): Signal to plot
+        rpeaks_loc (np.ndarray): R peaks to plot
+        xlabel (str, optional): x label. Defaults to "".
+        ylabel (str, optional): y label. Defaults to "".
+        title (str, optional): title. Defaults to "".
+    """
+    plt.figure(figsize=(20, 4))
+    sns.lineplot(data=signal, linewidth=0.7, color='black')
+    plt.scatter(rpeaks_loc, signal[rpeaks_loc], color='red', s=50, marker='o')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.show()
