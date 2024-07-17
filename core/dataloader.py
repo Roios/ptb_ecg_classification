@@ -136,6 +136,7 @@ def load_data(data_path: Path = Path('physionet.org/files/ptb-xl/1.0.2'), sampli
         if sz_raw_sample != len(raw_data[i]):
             raise Exception("The data doesn't have consistent size.")
 
+    annotations.sex = annotations.sex.map({0: 'male', 1: 'female'})
     output = data_split(raw_data, annotations)
 
     output["channels_name"] = channels_name
