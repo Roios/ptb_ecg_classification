@@ -25,7 +25,7 @@ With Poetry installed, one just needs to run `poetry install` from the root of t
 
 ## EDA
 
-The first goal is to explore that data. Our data exploration consists on the following steps:
+The first goal is to explore the data. Our data exploration consists on the following steps:
 
 - load the data
 - visualize target data
@@ -33,3 +33,12 @@ The first goal is to explore that data. Our data exploration consists on the fol
   - apply filters
   - estimate the baseline wander
 - estimate the QRS complex
+- evaluate the data split suggested by `Physionet`
+- data augmentation techniques
+
+The EDA is done in `notebooks/eda.ipynb`.
+Once we run the notebook, we have a clear understanding on how is the data and how is it split.
+
+## Model
+
+Work in progress.
