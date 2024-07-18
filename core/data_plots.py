@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.ticker import PercentFormatter
 
 DST_DIR = Path(__file__).parent.parent.joinpath('images')
 CHANNELS_NAME = ['I', 'II', 'III', 'AVR', 'AVL', 'AVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
@@ -37,7 +38,7 @@ def plot_ecg_channels(raw_data: np.ndarray,
     for i in range(num_plots):
         data_to_plot = raw_data[:, i]
         x_scale = list(range(0, int(np.ceil(len(data_to_plot) / sampling_rate))))
-        sns.lineplot(data=data_to_plot, ax=axs[i], linewidth=0.5)
+        sns.lineplot(data=data_to_plot, color='black', ax=axs[i], linewidth=0.5)
         axs[i].set(xlabel='seconds', ylabel='Amplitude', title=(f'{CHANNELS_NAME[i]}'))
         axs[i].set_xticks(list(range(0, len(data_to_plot), sampling_rate)))
         axs[i].set_xticklabels(x_scale)
@@ -71,7 +72,7 @@ def plot_filtered_signal(ecg_signal: np.ndarray,
     t = list(range(0, int(np.ceil(len(ecg_signal) / sampling_rate))))
 
     plt.figure(figsize=(12, 6))
-    sns.lineplot(data=ecg_signal, label="Original", linewidth=0.5)
+    sns.lineplot(data=ecg_signal, label="Original", color='black', linewidth=0.5)
     sns.lineplot(data=smoothed_ecg, label="Smoothed", color="red", linewidth=0.5)
     plt.xticks(list(range(0, len(ecg_signal), sampling_rate)), labels=t)
     plt.legend()
@@ -126,7 +127,7 @@ def plot_signal(signal: np.ndarray, xlabel: str = "", ylabel: str = "", title: s
         title (str, optional): title. Defaults to "".
     """
     plt.figure(figsize=(20, 4))
-    sns.lineplot(data=signal, linewidth=0.5)
+    sns.lineplot(data=signal, color='black', linewidth=0.5)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
@@ -153,4 +154,92 @@ def plot_signal_and_rpeaks(signal: np.ndarray,
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
+    plt.show()
+
+
+def plot_data_distribution(class_counts: Dict[str, Dict], class_percentages: Dict[str, Dict]) -> None:
+    """ Generate the plot for data distribution.
+
+    Args:
+        class_counts (Dict[str, Dict]): Dictionary containing counts per class for each split.
+        class_percentages (Dict[str, Dict]): Dictionary containing percentages per class for each split.
+    """
+    splits = list(class_counts.keys())
+    num_splits = len(splits)
+
+    _, axes = plt.subplots(2, num_splits, figsize=(5 * num_splits, 10))
+    plt.subplots_adjust(hspace=0.5)
+
+    for i, split in enumerate(splits):
+        df = pd.DataFrame({
+            'Class': list(class_counts[split].keys()),
+            f'{split}_Counts': list(class_counts[split].values()),
+            f'{split}_Percentage': [class_percentages[split].get(cls, 0) for cls in class_counts[split].keys()]
+        }).sort_values(by='Class')
+
+        sns.barplot(ax=axes[0, i], x='Class', y=f'{split}_Percentage', data=df)
+        axes[0, i].set_title(f'{split} Class Distribution (Percentage)')
+        axes[0, i].set_ylabel('Percentage' if i == 0 else '')
+        axes[0, i].set_xticks(range(len(df)))
+        axes[0, i].set_xticklabels(df['Class'], rotation=90)
+
+        sns.barplot(ax=axes[1, i], x='Class', y=f'{split}_Counts', data=df)
+        axes[1, i].set_title(f'{split} Class Distribution (Counts)')
+        axes[1, i].set_ylabel('Counts' if i == 0 else '')
+        axes[1, i].set_xticks(range(len(df)))
+        axes[1, i].set_xticklabels(df['Class'], rotation=90)
+
+    plt.suptitle("Data distribution")
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_distribution_age_sex(annotations) -> None:
+    sns.histplot(data=annotations, x='age', hue="sex", binwidth=5)
+    plt.xlabel('Age')
+    plt.ylabel('Frequency')
+    plt.title('Age distribution by sex')
+    plt.show()
+
+
+def plot_distribution_diagnostic_sex(annotations) -> None:
+    aux_dict = {"sex": [], "diagnostic": []}
+    for diagnostic, sex in zip(annotations.diagnostic_superclass, annotations.sex):
+        aux_dict['diagnostic'].append(" ".join(l for l in diagnostic))
+        aux_dict['sex'].append(sex)
+
+    df = pd.DataFrame(aux_dict)
+    df = df.sort_values(by='diagnostic')
+
+    count_df = df.groupby(['sex', 'diagnostic']).size().reset_index(name='count')
+    total_counts = count_df.groupby('sex')['count'].transform('sum')
+    count_df['percentage'] = (count_df['count'] / total_counts) * 100
+
+    _, axs = plt.subplots(2, 1, figsize=(10, 8))
+    sns.barplot(ax=axs[0],
+                data=count_df,
+                x='diagnostic',
+                y='count',
+                hue='sex',
+                palette='Set2',
+                order=sorted(df['diagnostic'].unique()))
+    axs[0].set_xlabel('Diagnostic')
+    axs[0].set_ylabel('Count')
+    axs[0].set_title('Counts of diagnostic by sex')
+    axs[0].tick_params(axis='x', rotation=90)
+
+    sns.barplot(ax=axs[1],
+                data=count_df,
+                x='diagnostic',
+                y='percentage',
+                hue='sex',
+                palette='Set2',
+                order=sorted(df['diagnostic'].unique()))
+    axs[1].yaxis.set_major_formatter(PercentFormatter())
+    axs[1].set_xlabel('Diagnostic')
+    axs[1].set_ylabel('Percentage')
+    axs[1].set_title('Percentages of diagnostic by sex')
+    axs[1].tick_params(axis='x', rotation=90)
+
+    plt.tight_layout()
     plt.show()

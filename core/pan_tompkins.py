@@ -560,14 +560,16 @@ class PanTompkinsQRS():
 
         self.tuned_peaks = np.array(self.tuned_peaks)
 
-    def estimate_heartrate(self) -> float:
+    def estimate_heartrate(self) -> Union[float, float]:
         """ Estimate the heart rate based on the R peaks
 
         Returns:
             float: heart rate in BPM
+            float: heart rate variability
         """
 
-        result = self.tuned_peaks[self.tuned_peaks > 0]
+        heart_rate = (60 * self.sample_rate) / np.average(np.diff(self.tuned_peaks[1:]))
 
-        heart_rate = (60 * self.sample_rate) / np.average(np.diff(result[1:]))
-        return heart_rate
+        heart_rate_var = np.std(self.rr1)
+
+        return heart_rate, heart_rate_var

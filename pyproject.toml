@@ -21,6 +21,7 @@ onnxruntime = "^1.18.1"
 onnxruntime-gpu = "^1.18.1"
 jupyter = "^1.0.0"
 pywavelets = "^1.6.0"
+imblearn = "^0.0"
 
 [[tool.poetry.source]]
 name = "torch118"
