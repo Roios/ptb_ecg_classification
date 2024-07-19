@@ -1,12 +1,8 @@
-# Data processes for cleanup and eda
-
-from collections import Counter
-from typing import Dict, List, Union
+from typing import List
 
 import numpy as np
-import pandas as pd
 from scipy.ndimage import gaussian_filter
-from scipy.signal import butter, lfilter, medfilt, savgol_filter, sosfiltfilt
+from scipy.signal import butter, medfilt, savgol_filter, sosfiltfilt
 
 
 def smooth_signal_savgol(ecg_signal: np.ndarray, window_length: int, polyorder: int = 3) -> np.ndarray:
@@ -182,18 +178,3 @@ def remove_baseline_wander(ecg_signal: np.ndarray, durations: List[float], sampl
     wander = estimate_baseline_wander(ecg_signal, durations, sample_rate)
     filtered_ecg = np.subtract(ecg_signal, wander)
     return filtered_ecg
-
-
-def calculate_distribution(labels: List) -> Union[Dict, Dict]:
-    """ Calculate the labels distributions.
-
-    Args:
-        labels (List): labels to analyze
-
-    Returns:
-        Union[Dict, Dict]: Labels count and percentages
-    """
-    class_counts = Counter(ll for l in labels for ll in l)
-    total_count = sum(class_counts.values())
-    class_percentages = {cls: count / total_count * 100 for cls, count in class_counts.items()}
-    return class_counts, class_percentages
