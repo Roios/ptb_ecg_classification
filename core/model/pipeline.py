@@ -11,6 +11,7 @@ import torch
 from sklearn.metrics import (accuracy_score, classification_report, f1_score, hamming_loss, jaccard_score,
                              precision_score, recall_score)
 
+import core.model.dataset as crds
 import core.model.ml_plots as mlplots
 from core.utils import EarlyStopping, balance_input
 
@@ -26,6 +27,15 @@ class Pipeline():
             seed (int, optional): Random seed. Default to 42.
         """
 
+        self.model = model
+
+        # results folder
+        date = datetime.today().strftime('%Y_%m_%d')
+        hour = datetime.today().strftime('%H_%M_%S')
+        self.dst_dir = Path(f"results/{date}/{hour}_{self.model.model_name}")
+        if not self.dst_dir.exists():
+            self.dst_dir.mkdir(parents=True, exist_ok=True)
+
         # check if GPU is available
         self.use_cuda = torch.cuda.is_available()
         print(f"GPU available: {self.use_cuda}")
@@ -33,6 +43,7 @@ class Pipeline():
         if self.use_cuda:
             torch.backends.cudnn.deterministic = True
             torch.backends.cudnn.benchmark = False
+            self.model.to(self.device)
 
         # fix all random seeds for reproducibility
         np.random.seed(seed)
@@ -42,18 +53,9 @@ class Pipeline():
             torch.cuda.manual_seed(seed)
             torch.backends.cudnn.benchmark = False
 
-        # build the model
-        self.model = model
-        self.model.to(self.device)
+        # model info
         print(f"Model architecture: {self.model.model_name}")
         print(f"Number of parameters: {sum(p.numel() for p in self.model.parameters()):.0f}")
-
-        # results folder
-        date = datetime.today().strftime('%Y_%m_%d')
-        hour = datetime.today().strftime('%H_%M_%S')
-        self.dst_dir = Path(f"results/{date}/{hour}_{self.model.model_name}")
-        if not self.dst_dir.exists():
-            self.dst_dir.mkdir(parents=True, exist_ok=True)
 
         self.labels_name = labels_name
         self.num_classes = len(self.labels_name)
@@ -99,55 +101,36 @@ class Pipeline():
         return loader, class_weights
 
     def train(self,
-              x_train: np.ndarray,
-              y_train: np.ndarray,
-              x_val: np.ndarray,
-              y_val: np.ndarray,
+              train_ds: crds.ECGDataset,
+              val_ds: crds.ECGDataset,
               epochs: int,
               batch_size: int,
               lr: float,
               patience: int = 7,
               delta_stop: float = 0,
               val_every: int = 1,
-              half_precision: bool = False,
-              use_sampler: bool = False) -> None:
+              half_precision: bool = False) -> None:
         """ Train and evaluates a model
 
         Args:
-            x_train (np.ndarray): Training input data
-            y_train (np.ndarray): Training label data
-            x_val (np.ndarray): Validation input data
-            y_val (np.ndarray): Validation label data
-            label_names (List): Names of the labels
-            learning_rate (float): Maximum learning rate
-            batch_size (int): Batch size
+            train_ds (ECGDataset): Training dataset
+            val_ds (ECGDataset): Validation dataset
             epochs (int): Number of epochs
+            batch_size (int): Batch size
+            lr (float): Maximum learning rate
             patience (int, optional): Number of epochs before early stopping. Defaults to 7.
             delta_stop (float, optional): Minimum delta for early stopping. Defaults to 0.
-            use_sampler(bool, optional): Uses a sampler to balance the data.
+            val_every (int, optional): Validation step every X epochs. Defaults to 1.
+            half_precision(bool, optional): Train with half precision. Defaults to False.
         """
 
         # setup the early stop
         early_stopping = EarlyStopping(patience=patience, delta=delta_stop, path=self.dst_dir.joinpath("checkpoint.pt"))
 
-        # data structure
-        print(f"Train samples shape: {x_train.shape}")
-        print(f"Train labels shape: {y_train.shape}")
-        print(f"Val samples shape: {x_val.shape}")
-        print(f"Val labels shape: {y_val.shape}")
-
         # create the dataloaders
-        train_loader, class_weights = self.make_dataloader(x_data=x_train,
-                                                           y_data=y_train,
-                                                           batch_size=batch_size,
-                                                           use_sampler=use_sampler,
-                                                           is_val=False)
-
-        val_loader, _ = self.make_dataloader(x_data=x_val,
-                                             y_data=y_val,
-                                             batch_size=batch_size,
-                                             use_sampler=False,
-                                             is_val=True)
+        class_weights = train_ds.class_weights
+        train_loader = crds.make_dataloader(ds=train_ds, batch_size=batch_size)
+        val_loader = crds.make_dataloader(ds=val_ds, batch_size=batch_size)
 
         # training setup
         optimizer = torch.optim.Adam(params=self.model.parameters(), lr=lr, weight_decay=1e-4)
@@ -250,9 +233,7 @@ class Pipeline():
         # metrics
         predictions = torch.cat(predictions).detach().cpu().numpy()
 
-        np.savetxt('new_pred.txt', predictions.flatten(), fmt='%.5f')
-
-        self.val_thresholds = mlplots.plot_pr_curves(ground_truth=y_val,
+        self.val_thresholds = mlplots.plot_pr_curves(ground_truth=val_ds.labels_bin,
                                                      predictions=predictions,
                                                      labels_name=self.labels_name,
                                                      data_type="val",
@@ -262,15 +243,14 @@ class Pipeline():
         self.val_thresholds = np.array([self.val_thresholds[l] for l in self.labels_name])
         predictions = (predictions > self.val_thresholds).astype(int)
 
-        np.savetxt('new_pred2.txt', predictions.flatten(), fmt='%.5f')
-        mlplots.plot_cm_multilabel(ground_truth=y_val,
+        mlplots.plot_cm_multilabel(ground_truth=val_ds.labels_bin,
                                    predictions=predictions,
                                    labels_name=self.labels_name,
                                    data_type="val",
                                    dst_dir=self.dst_dir,
                                    show=False)
 
-        self.report(y_val, predictions, self.labels_name)
+        self.report(val_ds.labels_bin, predictions, self.labels_name)
 
     def evaluate(self, x_eval: np.ndarray, y_eval: np.ndarray, batch_size: int = 512) -> None:
         """ Evaluates a model
@@ -442,16 +422,19 @@ class Pipeline():
         print(f"F1-Score (Macro): {f1_macro:.3f} (higher is better)")
         print(f"F1-Score (Weighted): {f1_weighted:.3f} (higher is better)")
         print(f"Hamming Loss: {h_loss:.3f} (lower is better)")
-        print(f"Jaccard Score: {jaccard:.3f} (higher is better)\n")
+        print(f"Jaccard Score: {jaccard:.3f} (higher is better)")
 
-        print("\nClassification Report:")
-        print(f"{class_report}")
+        print("\nClassification Report:", flush=True)
+        print(class_report)
 
 
 if __name__ == "__main__":
     import core.dataloader as crloader
-    import core.utils as crutils
     from core.model.architectures import FullyConvolutionalNetwork
+
+    epochs = 20
+    batch_size = 128
+    learning_rate = 0.001
 
     print("Loading data...")
     data = crloader.load_data(
@@ -459,49 +442,24 @@ if __name__ == "__main__":
         sampling_rate=100)
     print("Data loaded.")
 
-    # Remove data without annotations
-    train_signal_clean, train_labels_filtered = crutils.remove_no_label_data(data["train"]["data"],
-                                                                             data["train"]["labels"])
-    val_signal_clean, val_labels_filtered = crutils.remove_no_label_data(data["val"]["data"], data["val"]["labels"])
-    test_signal_clean, test_labels_filtered = crutils.remove_no_label_data(data["test"]["data"], data["test"]["labels"])
+    train_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="train", shuffle=True)
+    val_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="val", shuffle=True)
+    test_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="test")
 
-    class_counts, class_percentages = crutils.calculate_distribution(train_labels_filtered, use_combo=False)
-    print(f"Train classes: {class_counts}")
-
-    # Binarize the labels
-    labels_train_bin, labels_class = crutils.binarize_labels(train_labels_filtered)
-    bin_transf = crutils.get_binarize_transform(train_labels_filtered)
-    labels_val_bin = bin_transf.transform(val_labels_filtered)
-    labels_test_bin = bin_transf.transform(test_labels_filtered)
-
-    # Standardize the data per channel
-    mean_train, std_train = crutils.get_mean_and_std_per_channel(train_signal_clean)
-    train_signal_clean = crutils.standardize_signal_per_channel(train_signal_clean, mean_train, std_train)
-    val_signal_clean = crutils.standardize_signal_per_channel(val_signal_clean, mean_train, std_train)
-    test_signal_clean = crutils.standardize_signal_per_channel(test_signal_clean, mean_train, std_train)
-
-    model = FullyConvolutionalNetwork(num_classes=labels_train_bin.shape[1],
-                                      channels=train_signal_clean.shape[2],
+    model = FullyConvolutionalNetwork(num_classes=train_ds.num_classes,
+                                      channels=train_ds.channels,
                                       filters=[128, 256, 128],
                                       kernel_sizes=[8, 5, 3],
                                       linear_layer_len=128)
 
-    epochs = 20
-    train_batch_size = 128
-    test_batch_size = 512
-    learning_rate = 0.001
+    pipe = Pipeline(model=model, labels_name=train_ds.labels_class)
 
-    pipe = Pipeline(model=model, labels_name=labels_class)
-
-    pipe.train(x_train=train_signal_clean,
-               y_train=labels_train_bin,
-               x_val=val_signal_clean,
-               y_val=labels_val_bin,
+    pipe.train(train_ds=train_ds,
+               val_ds=val_ds,
                epochs=epochs,
-               batch_size=train_batch_size,
+               batch_size=batch_size,
                lr=learning_rate,
                patience=5,
                delta_stop=0,
                val_every=1,
-               half_precision=False,
-               use_sampler=False)
+               half_precision=False)
