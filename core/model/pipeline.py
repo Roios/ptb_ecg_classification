@@ -1,3 +1,6 @@
+import logging
+
+logger = logging.getLogger(__name__)
 import random
 import time
 from datetime import datetime
@@ -13,7 +16,7 @@ from sklearn.metrics import (accuracy_score, classification_report, f1_score, ha
 
 import core.model.dataset as crds
 import core.model.ml_plots as mlplots
-from core.utils import EarlyStopping, balance_input
+from core.utils import EarlyStopping, balance_input, setup_logging
 
 
 class Pipeline():
@@ -28,7 +31,6 @@ class Pipeline():
         """
 
         self.model = model
-
         # results folder
         date = datetime.today().strftime('%Y_%m_%d')
         hour = datetime.today().strftime('%H_%M_%S')
@@ -36,9 +38,11 @@ class Pipeline():
         if not self.dst_dir.exists():
             self.dst_dir.mkdir(parents=True, exist_ok=True)
 
+        logger.info("Initiating model")
+
         # check if GPU is available
         self.use_cuda = torch.cuda.is_available()
-        print(f"GPU available: {self.use_cuda}")
+        logger.info(f"GPU available: {self.use_cuda}")
         self.device = torch.device("cuda:0" if self.use_cuda else "cpu")
         if self.use_cuda:
             torch.backends.cudnn.deterministic = True
@@ -54,51 +58,11 @@ class Pipeline():
             torch.backends.cudnn.benchmark = False
 
         # model info
-        print(f"Model architecture: {self.model.model_name}")
-        print(f"Number of parameters: {sum(p.numel() for p in self.model.parameters()):.0f}")
+        logger.info(f"Model architecture: {self.model.model_name}")
+        logger.info(f"Number of parameters: {sum(p.numel() for p in self.model.parameters()):.0f}")
 
         self.labels_name = labels_name
         self.num_classes = len(self.labels_name)
-
-    def make_dataloader(self,
-                        x_data: np.ndarray,
-                        batch_size: int,
-                        y_data: np.ndarray = None,
-                        is_val: bool = False,
-                        use_sampler: bool = False) -> Union[torch.utils.data.DataLoader, torch.tensor]:
-
-        class_weights = None
-
-        if y_data is not None:
-            if use_sampler:
-                sampler, class_weights = balance_input(
-                    torch.from_numpy(x_data).float(),
-                    torch.from_numpy(y_data).float())
-
-            loader = torch.utils.data.DataLoader(dataset=torch.utils.data.TensorDataset(
-                torch.from_numpy(x_data).float(),
-                torch.from_numpy(y_data).float()),
-                                                 batch_size=batch_size,
-                                                 sampler=sampler if use_sampler else None,
-                                                 shuffle=False if use_sampler or is_val else True,
-                                                 num_workers=1,
-                                                 pin_memory=True,
-                                                 drop_last=False)
-
-        else:
-            if use_sampler:
-                sampler, class_weights = balance_input(torch.from_numpy(x_data).float())
-
-            loader = torch.utils.data.DataLoader(dataset=torch.utils.data.TensorDataset(
-                torch.from_numpy(x_data).float()),
-                                                 batch_size=batch_size,
-                                                 sampler=sampler if use_sampler else None,
-                                                 shuffle=False if use_sampler or is_val else True,
-                                                 num_workers=1,
-                                                 pin_memory=True,
-                                                 drop_last=False)
-
-        return loader, class_weights
 
     def train(self,
               train_ds: crds.ECGDataset,
@@ -124,8 +88,12 @@ class Pipeline():
             half_precision(bool, optional): Train with half precision. Defaults to False.
         """
 
+        logger.info("Training start")
         # setup the early stop
-        early_stopping = EarlyStopping(patience=patience, delta=delta_stop, path=self.dst_dir.joinpath("checkpoint.pt"))
+        early_stopping = EarlyStopping(patience=patience,
+                                       delta=delta_stop,
+                                       path=self.dst_dir.joinpath("checkpoint.pt"),
+                                       logger=logger)
 
         # create the dataloaders
         class_weights = train_ds.class_weights
@@ -151,7 +119,7 @@ class Pipeline():
         val_step_counter = 0
         if half_precision:
             scaler = torch.cuda.amp.GradScaler()
-            print("Training with half-precision.")
+            logger.info("Training with half-precision.")
 
         # Train and val loop
         for epoch in range(epochs):
@@ -211,7 +179,7 @@ class Pipeline():
             history["val_time"].append(val_end - val_start)
             history["val_loss"].append(val_loss.detach().cpu().item())
 
-            print(", ".join([f"{k}: {v[-1]:.6f}" for k, v in history.items()]))
+            logger.info(", ".join([f"{k}: {v[-1]:.6f}" for k, v in history.items()]))
 
             if early_break:
                 break
@@ -226,7 +194,7 @@ class Pipeline():
         mlplots.plot_loss_evolution(history["train_loss"], history["val_loss"], dst_dir=self.dst_dir, show=False)
 
         total_time_min = sum(history["train_time"]) / 60
-        print(f"Total training time: {total_time_min:.2f} minutes")
+        logger.info(f"Total training time: {total_time_min:.2f} minutes")
 
         mlplots.plot_lr_evolution(lrs=lr_evolution, dst_dir=self.dst_dir, show=False)
 
@@ -239,7 +207,7 @@ class Pipeline():
                                                      data_type="val",
                                                      dst_dir=self.dst_dir,
                                                      show=False)
-        print(f"Thresholds: {self.val_thresholds}")
+        logger.info(f"Thresholds: {self.val_thresholds}")
         self.val_thresholds = np.array([self.val_thresholds[l] for l in self.labels_name])
         predictions = (predictions > self.val_thresholds).astype(int)
 
@@ -280,7 +248,7 @@ class Pipeline():
                 predictions.append(torch.nn.functional.sigmoid(output))
         val_end = time.time()
         total_time_min = (val_end - val_start) / 60
-        print(f"total time: {total_time_min:.2f} minutes")
+        logger.info(f"total time: {total_time_min:.2f} minutes")
 
         # # metrics
         # predictions = torch.cat(predictions).detach().cpu().numpy()
@@ -378,12 +346,11 @@ class Pipeline():
                 # absolute_error = np.linalg.norm(torch_out - onnx_out)
                 # relative_error = absolute_error / np.linalg.norm(torch_out)
                 np.testing.assert_allclose(torch_out, onnx_out, rtol=1e-03, atol=1e-02)
-            print("Exported model has been tested with ONNXRuntime, and the results match!")
+            logger.info("Exported model has been tested with ONNXRuntime, and the results match!")
         except AssertionError:
-            print("!!! ONNX exported model is not compatible with the original !!! \n")
+            logger.info("!!! ONNX exported model is not compatible with the original !!! \n")
 
-    @staticmethod
-    def report(y_true, y_pred, label_names):
+    def report(self, y_true, y_pred, label_names):
 
         # micro: averages metrics across all classes, emphasizing overall performance
         # macro: averages metrics independently for each class, giving equal weight to each class
@@ -410,56 +377,58 @@ class Pipeline():
 
         class_report = classification_report(y_true, y_pred, target_names=label_names, zero_division=0)
 
-        print("Overall Metrics:")
-        print(f"Accuracy: {accuracy:.3f} (higher is better)")
-        print(f"Precision (Micro): {precision_micro:.3f} (higher is better)")
-        print(f"Precision (Macro): {precision_macro:.3f} (higher is better)")
-        print(f"Precision (Weighted): {precision_weighted:.3f} (higher is better)")
-        print(f"Recall (Micro): {recall_micro:.3f} (higher is better)")
-        print(f"Recall (Macro): {recall_macro:.3f} (higher is better)")
-        print(f"Recall (Weighted): {recall_weighted:.3f} (higher is better)")
-        print(f"F1-Score (Micro): {f1_micro:.3f} (higher is better)")
-        print(f"F1-Score (Macro): {f1_macro:.3f} (higher is better)")
-        print(f"F1-Score (Weighted): {f1_weighted:.3f} (higher is better)")
-        print(f"Hamming Loss: {h_loss:.3f} (lower is better)")
-        print(f"Jaccard Score: {jaccard:.3f} (higher is better)")
+        logger.info("Overall Metrics:")
+        logger.info(f"Accuracy: {accuracy:.3f} (higher is better)")
+        logger.info(f"Precision (Micro): {precision_micro:.3f} (higher is better)")
+        logger.info(f"Precision (Macro): {precision_macro:.3f} (higher is better)")
+        logger.info(f"Precision (Weighted): {precision_weighted:.3f} (higher is better)")
+        logger.info(f"Recall (Micro): {recall_micro:.3f} (higher is better)")
+        logger.info(f"Recall (Macro): {recall_macro:.3f} (higher is better)")
+        logger.info(f"Recall (Weighted): {recall_weighted:.3f} (higher is better)")
+        logger.info(f"F1-Score (Micro): {f1_micro:.3f} (higher is better)")
+        logger.info(f"F1-Score (Macro): {f1_macro:.3f} (higher is better)")
+        logger.info(f"F1-Score (Weighted): {f1_weighted:.3f} (higher is better)")
+        logger.info(f"Hamming Loss: {h_loss:.3f} (lower is better)")
+        logger.info(f"Jaccard Score: {jaccard:.3f} (higher is better)")
 
-        print("\nClassification Report:", flush=True)
-        print(class_report)
+        logger.info(f"Classification Report:\n{class_report}")
 
 
 if __name__ == "__main__":
     import core.dataloader as crloader
     from core.model.architectures import FullyConvolutionalNetwork
 
-    epochs = 20
+    logger = setup_logging("training_pipeline.log")
+
+    epochs = 50
     batch_size = 128
     learning_rate = 0.001
 
-    print("Loading data...")
+    logger.info("Loading data...")
     data = crloader.load_data(
         data_path='C:/Users/pedro/Desktop/ptb_ecg_classification/data/physionet.org/files/ptb-xl/1.0.2',
         sampling_rate=100)
-    print("Data loaded.")
+    logger.info("Data loaded.")
 
-    train_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="train", shuffle=True)
-    val_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="val", shuffle=True)
-    test_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="test")
+    for aug_type in [None, "under", "over"]:
+        train_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="train", shuffle=True, augmentation=aug_type)
+        val_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="val", shuffle=True)
+        test_ds = crds.ECGDataset(data=data, apply_sampler=False, ds_type="test")
 
-    model = FullyConvolutionalNetwork(num_classes=train_ds.num_classes,
-                                      channels=train_ds.channels,
-                                      filters=[128, 256, 128],
-                                      kernel_sizes=[8, 5, 3],
-                                      linear_layer_len=128)
+        model = FullyConvolutionalNetwork(num_classes=train_ds.num_classes,
+                                          channels=train_ds.channels,
+                                          filters=[128, 256, 128],
+                                          kernel_sizes=[8, 5, 3],
+                                          linear_layer_len=128)
 
-    pipe = Pipeline(model=model, labels_name=train_ds.labels_class)
+        pipe = Pipeline(model=model, labels_name=train_ds.labels_class)
 
-    pipe.train(train_ds=train_ds,
-               val_ds=val_ds,
-               epochs=epochs,
-               batch_size=batch_size,
-               lr=learning_rate,
-               patience=5,
-               delta_stop=0,
-               val_every=1,
-               half_precision=False)
+        pipe.train(train_ds=train_ds,
+                   val_ds=val_ds,
+                   epochs=epochs,
+                   batch_size=batch_size,
+                   lr=learning_rate,
+                   patience=10,
+                   delta_stop=0,
+                   val_every=1,
+                   half_precision=False)

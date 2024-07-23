@@ -1,4 +1,7 @@
+import logging
 from collections import Counter
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Union
 
 import numpy as np
@@ -109,7 +112,12 @@ def balance_input(data: np.ndarray, labels: np.ndarray) -> Union[torch.utils.dat
 
 class EarlyStopping:
 
-    def __init__(self, patience: int = 7, delta: float = 0, path: str = "checkpoint.pt", verbose: bool = True) -> None:
+    def __init__(self,
+                 patience: int = 7,
+                 delta: float = 0,
+                 path: str = "checkpoint.pt",
+                 verbose: bool = True,
+                 logger=None) -> None:
         """
         Args:
             patience (int): Epochs to wait after last val loss improved.
@@ -125,6 +133,7 @@ class EarlyStopping:
         self.delta = delta
         self.path = path
         self.verbose = verbose
+        self.logger = logger
 
     def __call__(self, val_loss: float, model) -> None:
 
@@ -136,12 +145,18 @@ class EarlyStopping:
         elif score <= self.best_score + self.delta:
             self.counter += 1
             if self.verbose:
-                print(f"EarlyStopping counter: {self.counter}/{self.patience}")
+                if self.logger:
+                    self.logger.info(f"EarlyStopping counter: {self.counter}/{self.patience}")
+                else:
+                    print(f"EarlyStopping counter: {self.counter}/{self.patience}")
             if self.counter >= self.patience:
                 self.early_stop = True
         else:
             if self.verbose:
-                print(f"New best score! It was {self.best_score:.6f} now is {score:.6f}")
+                if self.logger:
+                    self.logger.info(f"New best score! It was {self.best_score:.6f} now is {score:.6f}")
+                else:
+                    print(f"New best score! It was {self.best_score:.6f} now is {score:.6f}")
             self.best_score = score
             self.save_checkpoint(val_loss, model)
             self.counter = 0
@@ -151,10 +166,39 @@ class EarlyStopping:
         """
 
         if self.verbose:
-            print("Reset counter and saving model...")
+            if self.logger:
+                self.logger.info("Reset counter and saving model...")
+            else:
+                print("Reset counter and saving model...")
         torch.save(model.state_dict(), self.path)
         self.val_loss_min = val_loss
 
     def load_checkpoint(self, model):
         model.load_state_dict(torch.load(self.path))
         model.eval()
+
+
+def setup_logging(log_file: str = "logger.log"):
+
+    date = datetime.today().strftime('%Y_%m_%d')
+    hour = datetime.today().strftime('%H_%M_%S')
+    dst_dir = Path(f"logs/{date}/{hour}")
+    dst_file = dst_dir.joinpath(log_file)
+    if not dst_dir.exists():
+        dst_dir.mkdir(parents=True, exist_ok=True)
+
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    file_handler = logging.FileHandler(dst_file, mode='w')
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    return logger

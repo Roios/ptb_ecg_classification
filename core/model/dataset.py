@@ -1,19 +1,52 @@
+import logging
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
 import core.utils as crutils
+from core.eda.data_augmentation import DataAugmentor
+
+logger = logging.getLogger(__name__)
 
 
 class ECGDataset(Dataset):
 
-    def __init__(self, data, apply_sampler: bool = False, ds_type: str = "train", shuffle: bool = False) -> None:
+    def __init__(self,
+                 data,
+                 apply_sampler: bool = False,
+                 ds_type: str = "train",
+                 shuffle: bool = False,
+                 augmentation: str = None) -> None:
 
         # Remove data without annotations
         train_signal_clean, train_labels_filtered = crutils.remove_no_label_data(data["train"]["data"],
                                                                                  data["train"]["labels"])
         if ds_type != "train":
             signal_clean, labels_filtered = crutils.remove_no_label_data(data["val"]["data"], data["val"]["labels"])
+
+        # data augmentation
+        if ds_type != "train" and augmentation is not None:
+            augmentation = None
+            logger.info("Augmentation is only valid for training data. Ignoring augmentation request.")
+
+        if augmentation is not None:
+            aug = DataAugmentor()
+            init_size = train_signal_clean.shape[0]
+            if augmentation.lower() == "over":
+                train_signal_clean, train_labels_filtered = aug.get_oversampled(train_signal_clean,
+                                                                                train_labels_filtered,
+                                                                                add_multi=True)
+            elif augmentation.lower() == "under":
+                train_signal_clean, train_labels_filtered = aug.get_undersampled(train_signal_clean,
+                                                                                 train_labels_filtered,
+                                                                                 add_multi=True)
+            new_size = train_signal_clean.shape[0]
+
+            print(train_signal_clean.shape, type(train_signal_clean))
+            print(len(train_labels_filtered), type(train_labels_filtered))
+            logger.info(
+                f"The training data was augmented. Before we had {init_size} samples and now we have {new_size}")
 
         # Binarize the labels
         bin_transf = crutils.get_binarize_transform(train_labels_filtered)
@@ -72,6 +105,6 @@ def make_dataloader(ds: ECGDataset, batch_size: int, shuffle: bool = False):
         shuffle=shuffle,
         drop_last=False,
         pin_memory=True,
-        num_workers=1,
+        num_workers=0,
     )
     return loader

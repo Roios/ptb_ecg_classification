@@ -1,3 +1,4 @@
+import logging
 from typing import List, Union
 
 import numpy as np
@@ -6,6 +7,8 @@ from imblearn.over_sampling import RandomOverSampler
 from imblearn.under_sampling import RandomUnderSampler
 
 from core.utils import binarize_labels
+
+logger = logging.getLogger(__name__)
 
 
 class DataAugmentor():
@@ -156,7 +159,7 @@ class DataAugmentor():
 
         unique_labels, counts = np.unique(labels_resampled, return_counts=True)
         label_distribution = {labels_class[l]: c for l, c in zip(unique_labels, counts)}
-        print(f"Undersample distribution: {label_distribution}")
+        logger.info(f"Undersample distribution: {label_distribution}")
 
         labels_reshaped = np.zeros((labels_resampled.shape[0], num_labels))
         for idx, val in enumerate(labels_resampled):
@@ -190,7 +193,7 @@ class DataAugmentor():
 
         unique_labels, counts = np.unique(labels_resampled, return_counts=True)
         label_distribution = {labels_class[l]: c for l, c in zip(unique_labels, counts)}
-        print(f"Oversample distribution: {label_distribution}")
+        logger.info(f"Oversample distribution: {label_distribution}")
 
         labels_reshaped = np.zeros((labels_resampled.shape[0], num_labels))
         for idx, val in enumerate(labels_resampled):
